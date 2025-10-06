@@ -1,3 +1,5 @@
+"use client";
+
 import React, { useCallback, useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Crown, ImageIcon, Loader2, Upload, X } from "lucide-react";
@@ -9,13 +11,14 @@ import {
   upload,
 } from "@imagekit/next";
 import PaymentModal from "../PaymentModal";
-
+import { useSession, signIn } from "next-auth/react";
 
 interface UploadZoneProps {
   onImageUpload: (imageUrl: string) => void;
 }
 
 const UploadZone = ({ onImageUpload }: UploadZoneProps) => {
+  const { data: session } = useSession(); // ✅ get session
   const [isDragOver, setIsDragOver] = useState(false);
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -26,30 +29,44 @@ const UploadZone = ({ onImageUpload }: UploadZoneProps) => {
     plan: string;
     canUpload: boolean;
   } | null>(null);
-  
 
-  // check the usage on component mount
+  // Check usage when mounted
   useEffect(() => {
     checkUsage()?.catch(console.error);
   }, []);
 
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(true);
-  }, []);
+  const handleDragOver = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      if (!session) return; // don't show drag-over style
+      setIsDragOver(true);
+    },
+    [session]
+  );
 
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(false);
-  }, []);
+  const handleDragLeave = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      if (!session) return;
+      setIsDragOver(false);
+    },
+    [session]
+  );
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(false);
-
-    const files = Array.from(e.dataTransfer.files);
-    handleFiles(files);
-  }, []);
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      if (!session) {
+        alert("Please sign in to upload images.");
+        signIn();
+        return;
+      }
+      setIsDragOver(false);
+      const files = Array.from(e.dataTransfer.files);
+      handleFiles(files);
+    },
+    [session]
+  );
 
   const handleFileSelect = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -61,64 +78,55 @@ const UploadZone = ({ onImageUpload }: UploadZoneProps) => {
 
   const getUploadAuthParams = async () => {
     const response = await fetch("/api/upload-auth");
-
-    if (!response.ok) {
-      throw new Error("Failed to get upload auth params");
-    }
-    const data = await response?.json();
-
-    return data;
+    if (!response.ok) throw new Error("Failed to get upload auth params");
+    return await response.json();
   };
 
   const uploadToImageKit = async (file: File): Promise<string> => {
     try {
-      // Get authentication parameters
       const { token, expire, signature, publicKey } =
         await getUploadAuthParams();
 
       const result = await upload({
         file,
-        fileName: file?.name,
+        fileName: file.name,
         folder: "pixora-uploads",
         expire,
         token,
         signature,
         publicKey,
-        onProgress: (event) => {
-          // Update progress if needed
+        onProgress: (event) =>
           console.log(
             `Upload progress: ${(event.loaded / event.total) * 100}%`
-          );
-        },
+          ),
       });
 
       return result.url || "";
     } catch (error) {
-      if (error instanceof ImageKitInvalidRequestError) {
+      if (error instanceof ImageKitInvalidRequestError)
         throw new Error("Invalid upload request");
-      } else if (error instanceof ImageKitServerError) {
+      if (error instanceof ImageKitServerError)
         throw new Error("ImageKit server error");
-      } else if (error instanceof ImageKitUploadNetworkError) {
+      if (error instanceof ImageKitUploadNetworkError)
         throw new Error("Network error during upload");
-      } else {
-        throw new Error("Upload failed");
-      }
+      throw new Error("Upload failed");
     }
   };
 
   const handleFiles = async (files: File[]) => {
+    // ✅ simple login check
+    if (!session) {
+      alert("Please sign in to upload images.");
+      signIn(); // open login modal
+      return;
+    }
+
     const imageFile = files?.find((file) => file.type.startsWith("image/"));
     if (imageFile) {
       setIsUploading(true);
-
       try {
-        // Check usage first
         await checkUsage();
-
-        // Update usage count
         await updateUsage();
-
-        // Upload to ImageKit
         const imageUrl = await uploadToImageKit(imageFile);
         setUploadedImage(imageUrl);
         onImageUpload(imageUrl);
@@ -130,24 +138,22 @@ const UploadZone = ({ onImageUpload }: UploadZoneProps) => {
     }
   };
 
-const checkUsage = async () => {
-  const res = await fetch("/api/usage");
-  if (!res.ok) {
-    if (res.status === 401) return null; // not signed in; skip
-    throw new Error("Failed to check usage");
-  }
-  const data = await res.json();
-  setUsageData(data);
-  return data;
-};
+  const checkUsage = async () => {
+    const res = await fetch("/api/usage");
+    if (!res.ok) {
+      if (res.status === 401) return null;
+      throw new Error("Failed to check usage");
+    }
+    const data = await res.json();
+    setUsageData(data);
+    return data;
+  };
 
   const updateUsage = async () => {
     const response = await fetch("/api/usage", { method: "POST" });
     if (!response.ok) {
       const errorData = await response.json();
-      if (response.status === 401) {
-        throw new Error("Please sign in to upload");
-      }
+      if (response.status === 401) throw new Error("Please sign in to upload");
       if (response.status === 403) {
         setUsageData(errorData);
         setShowPaymentModal(true);
@@ -216,6 +222,7 @@ const checkUsage = async () => {
             onChange={handleFileSelect}
             className="hidden"
             id="file-upload"
+            disabled={!session} // ✅ prevent file selection if not signed in
           />
 
           <label
@@ -254,7 +261,7 @@ const checkUsage = async () => {
             <Button
               variant="outline"
               className="glass border-card-border"
-              disabled={isUploading}
+              disabled={isUploading || !session} // ✅ disable if not logged in
             >
               {isUploading ? (
                 <>
@@ -264,7 +271,7 @@ const checkUsage = async () => {
               ) : (
                 <>
                   <Upload className="h-4 w-4 mr-2" />
-                  Browse Files
+                  {session ? "Browse Files" : "Sign in required"}
                 </>
               )}
             </Button>
@@ -293,9 +300,7 @@ const checkUsage = async () => {
       <PaymentModal
         isOpen={showPaymentModal}
         onClose={() => setShowPaymentModal(false)}
-        onUpgrade={() => {
-          setShowPaymentModal(false);
-        }}
+        onUpgrade={() => setShowPaymentModal(false)}
         usageCount={usageData?.usageCount || 0}
         usageLimit={usageData?.usageLimit || 3}
       />

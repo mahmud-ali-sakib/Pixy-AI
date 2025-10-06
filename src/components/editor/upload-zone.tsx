@@ -10,6 +10,7 @@ import {
 } from "@imagekit/next";
 import PaymentModal from "../PaymentModal";
 
+
 interface UploadZoneProps {
   onImageUpload: (imageUrl: string) => void;
 }
@@ -25,6 +26,7 @@ const UploadZone = ({ onImageUpload }: UploadZoneProps) => {
     plan: string;
     canUpload: boolean;
   } | null>(null);
+  
 
   // check the usage on component mount
   useEffect(() => {
@@ -128,22 +130,25 @@ const UploadZone = ({ onImageUpload }: UploadZoneProps) => {
     }
   };
 
-  const checkUsage = async () => {
-    const response = await fetch("/api/usage");
-    if (!response.ok) {
-      throw new Error("Failed to check usage");
-    }
-    const data = await response.json();
-    setUsageData(data);
-    return data;
-  };
+const checkUsage = async () => {
+  const res = await fetch("/api/usage");
+  if (!res.ok) {
+    if (res.status === 401) return null; // not signed in; skip
+    throw new Error("Failed to check usage");
+  }
+  const data = await res.json();
+  setUsageData(data);
+  return data;
+};
 
   const updateUsage = async () => {
     const response = await fetch("/api/usage", { method: "POST" });
     if (!response.ok) {
       const errorData = await response.json();
+      if (response.status === 401) {
+        throw new Error("Please sign in to upload");
+      }
       if (response.status === 403) {
-        // Usage limit reached
         setUsageData(errorData);
         setShowPaymentModal(true);
         throw new Error("Usage limit reached");

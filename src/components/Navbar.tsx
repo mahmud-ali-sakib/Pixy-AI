@@ -1,5 +1,5 @@
 "use client";
-import { signIn, useSession } from "next-auth/react";
+import { signIn, useSession, signOut } from "next-auth/react";
 import React, { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Menu, Sparkles, X } from "lucide-react";
@@ -28,7 +28,7 @@ const Navbar = () => {
 
   const handleSubmit = async () => {
     if (session?.user) {
-      scrollToSection("editor");
+      await signOut();
     } else {
       await signIn("google");
     }
@@ -78,12 +78,18 @@ const Navbar = () => {
             >
               Pricing
             </button>
+            <button
+              onClick={() => scrollToSection("editor")}
+              className="text-foreground hover:text-primary transition-colors font-medium"
+            >
+              Editor
+            </button>
             <Button
               variant="hero"
               className="w-full font-semibold"
               onClick={handleSubmit}
             >
-              {session?.user ? "Launch App" : "Sign In"}
+              {session?.user ? "Log out" : "Sign In"}
             </Button>
           </div>
 
@@ -121,8 +127,14 @@ const Navbar = () => {
             >
               Pricing
             </button>
+            <button
+              onClick={() => scrollToSection("editor")}
+              className="block w-full text-left text-foreground hover:text-primary transition-colors font-medium"
+            >
+              Editor
+            </button>
             <Button variant="hero" className="w-full" onClick={handleSubmit}>
-              {session?.user ? "Launch App" : "Sign In"}
+              {session?.user ? "Log out" : "Sign In"}
             </Button>
           </div>
         </motion.div>
